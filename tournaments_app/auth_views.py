@@ -4,17 +4,31 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.request import Request
-
+from django.http import JsonResponse
 from tournaments_app.models import *
 from tournaments_app.serializers import *
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+
+class LoginView(TokenObtainPairView):
+    serializer_class = LoginSerializer
+
 
 @api_view(['POST'])
 def signup(request):
-    s = SignupSerializer(data=request.data)
+    s = SignupSerializer(data={
+                        "username": request.data['username'],
+                        "email": request.data['email'],
+                        "password": request.data['password'],
+                        "first_name": request.data['first_name'],
+                        "last_name": request.data['last_name']  
+                                })
     s.is_valid(raise_exception=True)
-    s.save()
-
-    return Response(data=s.data)
+    user = s.save()
+    token = RefreshToken.for_user(user)
+    return JsonResponse(data={"access": str(token.access_token),
+                            "refresh": str(token), "username": user.username})
 
 
 @api_view(['GET'])
