@@ -58,7 +58,8 @@ class OrganizationAdmin(models.Model):
 
 
 class Participants(models.Model):
-    participant_id = models.UUIDField(blank=False, null=False, default=uuid4(), max_length=256, primary_key=True)
+    id = models.BigAutoField(primary_key=True)
+    participant_id = models.UUIDField(blank=False, null=False, default=uuid4(), max_length=256)
     tournament = models.ForeignKey(
         Tournaments, on_delete=models.RESTRICT, blank=False, null=False)
     user = models.ForeignKey(
@@ -73,7 +74,7 @@ class Participants(models.Model):
         return Match.objects.filter(participant_one=self.participant_id, participant_two=self.participant_id)
 
     def __str__(self):
-        return f"Participants: '{self.user}' score: '{str(self.score)}'"
+        return self.game_username
 
     class Meta:
         db_table = 'participants'
@@ -102,7 +103,7 @@ class Pool(models.Model):
         return Rounds.objects.filter(round_num=1, tournament=self.tournament).exists()
 
     # views.py -> Pool.generate_matches()
-    def generate_first_round_matches(self, participants: list) -> list:
+    def create_initial_round(self) -> list:
         matches = []
         first_round = Rounds(tournament=self.tournament,
                              start_at=datetime.datetime.now(),
@@ -110,11 +111,12 @@ class Pool(models.Model):
                              round_num=1,
                              participant_pool=self)
         first_round.save()
+        participants = list(self.participants.all())
+
         shuffle(participants)
-        while len(participants) >= 2:
-            p1 = participants.pop()
-            p2 = participants.pop()
-            matches.append(Match(participant_one=p1, participant_two=p2))
+        pool1, pool2 = participants[len(participants) / 2:], participants[:len(participants) / 2]
+        for p1, p2 in zip(pool1, pool2):
+            matches.append(Match(participant_one=p1, participant_two=p2, rounds=first_round))
         return matches
 
     def get_OMW(self, participant: Participants):
@@ -134,8 +136,19 @@ class Pool(models.Model):
     def get_player_stats(self, participant: Participants):
         return PlayerStats.objects.get(participant=participant.participant_id)
 
-    def generate_matches() -> list:
-        return list(Match(participant_one=None, participant_two=None))
+    def create_round(self) -> list:
+        current_round = Rounds(tournament=self.tournament,
+                               start_at=datetime.datetime.now(),
+                               round_num=self.get_current_round_number() + 1,
+                               end_at=None,
+                               participant_pool=self)
+        current_round.save()
+        matches = []
+        participants = list(self.participants.all())
+        pool1, pool2 = participants[int(len(participants) / 2):], participants[:int(len(participants) / 2)]
+        for p1, p2 in zip(pool1, pool2):
+            matches.append(Match(participant_one=p1, participant_two=p2, rounds=current_round))
+        return matches
         # 1. pair the players with the highest points
         # 2. two players cant play each other more than once
 
@@ -144,14 +157,17 @@ class Pool(models.Model):
         if participant_count % 2 != 0:
             self.participants.add(None)  # Match(p1=Participant, p2=None)
         if not self.initial_round_exists:
-            return self.generate_first_round_matches(self.participants.values_list())
+            return self.create_initial_round()
 
-        return self.generate_matches()
+        return self.create_round()
 
         # check if Round(round_number=1) exists
         # add player shuffle (initial pairings)
         # calculate next rounds pairings
         # create new pairings after R1
+
+    def get_current_round_number(self):
+        return max(list(Rounds.objects.filter(tournament_id=self.tournament.id).values_list("round_num")))[0]
 
 
 class Rounds(models.Model):
@@ -163,7 +179,7 @@ class Rounds(models.Model):
     participant_pool = models.ForeignKey(Pool, on_delete=models.RESTRICT, blank=True, null=True)
 
     def __str__(self):
-        return f"Round"
+        return self.round_num
 
     class Meta:
         db_table = 'rounds'
@@ -176,8 +192,17 @@ class Match(models.Model):
         SWISS_BO3 = 3
         SINGLE_ELIMINATION_BO3 = 4
 
-    match_id = models.UUIDField(primary_key=True)
-    match_type = models.IntegerField(choices=MatchType.choices)
+    class Result(models.IntegerChoices):
+        P1_W = 1
+        P2_W = 2
+        TIE = 3
+
+    class MatchStatus(models.IntegerChoices):
+        FINISHED = 1
+        ONGOING = 2
+
+    match_id = models.UUIDField(primary_key=True, default=uuid4())
+    match_type = models.IntegerField(choices=MatchType.choices, default=MatchType.SWISS_BO1)
     participant_one = models.ForeignKey(Participants, on_delete=models.RESTRICT, related_name='first_participant')
     participant_two = models.ForeignKey(Participants, on_delete=models.RESTRICT, related_name='second_participant')
     participant_one_result = models.IntegerField(default=0)

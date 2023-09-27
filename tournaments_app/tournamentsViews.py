@@ -8,7 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from tournaments_app.serializers import *
-from tournaments_app.utils import tournament_has_enough_participants, delete_players_not_checked_in
+from tournaments_app.utils import tournament_has_enough_participants
 
 
 @api_view(['POST'])
@@ -34,19 +34,53 @@ def change_tournament_state(tournament: Tournaments):
 
 
 @api_view(['POST'])
+def start_round(request: Request, tournament_id):
+    current_round_number = Rounds.objects.filter(tournament=tournament_id).aggregate(models.Max("round_num"))
+    current_round = Rounds.objects.get(tournament=tournament_id, round_num=current_round_number)
+    current_round.end_at = datetime.now()
+    current_round.save()
+
+    # End current round, then create a new round
+
+
+def validate_round_exists(tournament_id: uuid4, round_num: int) -> bool:
+    return Rounds.objects.get(tournament_id=tournament_id, round_num=round_num).exists()
+
+
+def validate_matches_are_over():
+    pass  # TODO: finish this.
+
+
+def end_round(tournament_id: uuid4):
+    validate_matches_are_over()
+    current_round_number = Rounds.objects.filter(tournament=tournament_id).aggregate(models.Max("round_num"))
+    current_round = Rounds.objects.get(tournament=tournament_id, round_num=current_round_number)
+    current_round.end_at = datetime.now()
+    current_round.save()
+
+
+
+# Validate all the matches are over.
+# Update participant scoring and standings
+
+
+@api_view(['POST'])
 def start_tournament(request: Request, tournament_id):
     if tournament_has_enough_participants(tournament_id):
         tournament = Tournaments.objects.get(id=tournament_id)
 
         change_tournament_state(tournament)  # Now users cant register
-        delete_players_not_checked_in(tournament_id)  # Now you have the real participant pool
+        # delete_players_not_checked_in(tournament_id)  # Now you have the real participant pool
         participants = tournament.get_participants()
         player_pool, created = Pool.objects.get_or_create(tournament=tournament)
         for participant in participants:
             player_pool.participants.add(participant)
 
-        rounds = player_pool.create_rounds()
-        print(rounds)
+        matches = player_pool.create_rounds()
+
+        serializer = MatchSerializer(instance=matches, many=True)
+
+    return JsonResponse(data=serializer.data, safe=False)
 
 
 class MatchResult(Enum):

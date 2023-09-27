@@ -11,6 +11,7 @@ from tournaments_app.models import *
 from datetime import datetime, timedelta, date
 from tournaments_app.game_type import GAME_TYPES
 
+
 class LoginSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
@@ -18,13 +19,19 @@ class LoginSerializer(TokenObtainPairSerializer):
         user = User.objects.filter(pk=self.user.id).first()
         if user:
             data['username'] = user.username
-        
+
         return data
 
-class SignupSerializer(serializers.ModelSerializer):
 
+class MatchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Match
+        fields = ['match_id', 'participant_one', 'participant_two', 'participant_one_result', 'participant_two_result', 'rounds']
+
+
+class SignupSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
-        max_length=128, validators=[validate_password], write_only=True)
+        max_length=128, validators=[validate_password])
 
     class Meta:
         model = User
@@ -37,13 +44,14 @@ class SignupSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user = User.objects.create(
-                            username=validated_data['username'],
-                            email=validated_data['email'],
-                            first_name=validated_data.get('first_name', ''),
-                            last_name=validated_data.get('last_name', ''))
+            username=validated_data['username'],
+            email=validated_data['email'],
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''))
         user.set_password(validated_data['password'])
         user.save()
         return user
+
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -52,7 +60,6 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class TournamentSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Tournaments
         fields = "__all__"
@@ -66,10 +73,10 @@ class TournamentSerializer(serializers.ModelSerializer):
     def validate(self, data):
         if not GAME_TYPES.has_value(data['type']):
             raise serializers.ValidationError('type is invalid')
-        
+
         if timezone.now() > data['start_time']:
             raise serializers.ValidationError('you cant start a tournament in the past!')
-        
+
         if len(data['name']) >= 36:
             raise serializers.ValidationError('name is too long')
 
@@ -81,8 +88,7 @@ class TournamentSerializer(serializers.ModelSerializer):
         instance.is_ongoing = validated_data.get('is_ongoing', instance.is_ongoing)
         instance.save()
         return instance
-        
-    
+
     def create(self, validated_data):
         created_at = datetime.now()
 
@@ -94,7 +100,7 @@ class TournamentSerializer(serializers.ModelSerializer):
         )
 
         return tour
-    
+
 
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -107,15 +113,14 @@ class OrganizationSerializer(serializers.ModelSerializer):
             )
         ]
 
-
     def create(self, validated_data):
         if not 'organization_name' in validated_data:
             raise ValueError("Missing organization name")
         return Organization.objects.create(organization_name=validated_data['organization_name'],
-                organizer_id=validated_data['organizer_id'])
+                                           organizer_id=validated_data['organizer_id'])
+
 
 class PlayerStatisticsSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = PlayerStats
         fields = ['participant', 'score', 'omw']
@@ -125,23 +130,25 @@ class PlayerStatisticsSerializer(serializers.ModelSerializer):
                 fields=['participant']
             )
         ]
+
     def update(self, instance, validated_data):
         instance.omw = validated_data.get('omw', instance.omw)
         instance.score = validated_data.get('score', instance.score)
         instance.save()
         return instance
 
-class ParticipantsSerializer(serializers.ModelSerializer):
 
+class ParticipantsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Participants
-        fields = ['participant_id','game_username', 'username', 'user', 'tournament', 'checked_in']
+        fields = ['participant_id', 'game_username', 'username', 'user', 'tournament', 'checked_in']
         validators = [
             UniqueTogetherValidator(
                 queryset=Participants.objects.all(),
                 fields=['tournament', 'user']
             )
         ]
+
     def update(self, instance, validated_data):
         instance.username = validated_data.get('username', instance.username)
         instance.game_username = validated_data.get('game_username', instance.game_username)
@@ -150,7 +157,7 @@ class ParticipantsSerializer(serializers.ModelSerializer):
         return instance
 
     def can_register(self, tournament: Tournaments) -> None:
-        if tournament.is_ongoing or tournament.end_time != None: #TODO: add capacity check
+        if tournament.is_ongoing or tournament.end_time != None:  # TODO: add capacity check
             raise serializers.ValidationError("Cant register to tournament.")
 
     def create(self, validated_data):
@@ -159,9 +166,9 @@ class ParticipantsSerializer(serializers.ModelSerializer):
 
         if 'game_username' not in validated_data:
             raise serializers.ValidationError("Cant register without game username.")
-            
+
         return Participants.objects.create(
-                                            tournament=validated_data['tournament'],
-                                            username=validated_data['username'], game_username=validated_data['game_username'],
-                                            user=validated_data['user']
-                                            )
+            tournament=validated_data['tournament'],
+            username=validated_data['username'], game_username=validated_data['game_username'],
+            user=validated_data['user']
+        )
